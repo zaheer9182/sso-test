@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ar" dir="ltr">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GAC</title>
+    <link rel="icon" type="image/x-icon" href="images/favicon.svg">
+    <!-- bootstrap css -->
+    <link rel="stylesheet" href="./css/bootstrap-rtl.css" />
+    <!-- main css -->
+    <link rel="stylesheet" href="./css/style.css" />
+    <link rel="stylesheet" href="./css/responsive.css" />
+</head>
+
+<body>
+    <div class="chatbot-body">
+        <div id="chatControl">
+            <div class="chatbot-init">
+                <div class="chatbot-open-container" title="Open Chatbot" id="chatbot-open-container">
+                    <img class="img-fluid chatbot-icon" id="chatbotIcon"
+                        src="./SalehEnglishIcon.svg"
+                        width="" height="" alt="Chatbot" />
+                </div>
+            </div>
+        </div>
+        <div id="chatArea" style="display: none; visibility: hidden;">
+            <!-- Add this code -->
+            <div class="TopHead-flex">
+                <span class="refresh-icon">
+                    <button id="resizeBtn" type="button">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="transparent">
+                            <g id="SVGRepo_bgCarrier" stroke-width="0"></g>
+                            <g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g>
+                            <g id="SVGRepo_iconCarrier">
+                                <path d="M3 3H9V5H6.46173L11.3047 9.84298L9.8905 11.2572L5 6.3667V9H3V3Z"
+                                    fill="#ffffff"></path>
+                                <path d="M3 21H9V19H6.3764L11.3046 14.0718L9.89038 12.6576L5 17.548V15H3V21Z"
+                                    fill="#ffffff"></path>
+                                <path d="M15 21H21V15H19V17.5244L14.1332 12.6576L12.719 14.0718L17.6472 19H15V21Z"
+                                    fill="#ffffff"></path>
+                                <path d="M21 3H15V5H17.5619L12.7189 9.84301L14.1331 11.2572L19 6.39032V9H21V3Z"
+                                    fill="#ffffff"></path>
+                            </g>
+                        </svg>
+                    </button>
+                </span>
+                <button type="button" class="close-icon" id="closeChat" aria-label="Close chat" title="Close">
+                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none">
+                        <g id="SVGRepo_bgCarrier" stroke-width="0"></g>
+                        <g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g>
+                        <g id="SVGRepo_iconCarrier">
+                            <g stroke="#901d35" stroke-linecap="round" stroke-width="2">
+                                <path d="M6 18L18 6"></path>
+                                <path d="M18 18L6 6"></path>
+                            </g>
+                        </g>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="bodyChatArea">
+                <!--<iframe name="myIframe" id="myIframe" src="/Style Library/Chatbot/files/iframear.html"></iframe>-->
+                <iframe name="myIframe" id="myIframe" src="https://assistant.moj.gov.qa/" allow="microphone *"></iframe>
+            </div>
+        </div>
+        <!-- Add this script for Full Screen Mode -->
+        <script>
+            document.addEventListener("DOMContentLoaded", function () {
+                const resizeBtn = document.getElementById("resizeBtn");
+                const chatArea = document.getElementById("chatArea");
+                const chatbotIcon = document.getElementById("chatbotIcon");
+
+                // Set chatbot icon based on page direction
+                function updateChatbotIcon() {
+                    const dir = document.documentElement.getAttribute("dir");
+                    if (dir === "rtl") {
+                        chatbotIcon.src = "./SalehArabicIcon.svg";
+                    } else {
+                        chatbotIcon.src = "./SalehEnglishIcon.svg";
+                    }
+                }
+                updateChatbotIcon();
+
+                // The iframe header mirrors per language, so the close button follows it.
+                // Start from the iframe URL (/sharepoint/en|ar), then track the iframe's own messages.
+                function setChatLang(lang) {
+                    chatArea.setAttribute("data-lang", lang === "en" ? "en" : "ar");
+                }
+                const iframeEl = document.getElementById("myIframe");
+                setChatLang(/\/sharepoint\/en\b/.test(iframeEl.src) ? "en" : "ar");
+
+                let iframeOrigin = "*";
+                try { iframeOrigin = new URL(iframeEl.src, window.location.href).origin; } catch (e) {}
+                window.addEventListener("message", function (e) {
+                    if (e.origin !== iframeOrigin || !e.data || e.data.type !== "chatbot:lang") return;
+                    setChatLang(e.data.lang);
+                });
+
+                resizeBtn.addEventListener("click", function () {
+                    chatArea.classList.toggle("expanded");
+
+                    // Optional: change the icon to indicate current state
+                    const svg = resizeBtn.querySelector("svg");
+                    if (chatArea.classList.contains("expanded")) {
+                        // currently expanded → show "compress" icon (you can replace with any SVG you like)
+                        svg.innerHTML = `<path d="M15 3H21V9H19V6.3764L14.0718 11.3046L12.6576 9.89038L17.548 5H15V3Z" fill="#ffffff"></path>
+                                        <path d="M3 15H9V21H15V21H3V15Z" fill="#ffffff"></path>
+                                        <path d="M15 15H21V21H15V15Z" fill="#ffffff"></path>
+                                        <path d="M3 3H9V9H3V3Z" fill="#ffffff"></path>`;
+                    } else {
+                        // back to normal → restore your original expand icon
+                        svg.innerHTML = `<path d="M3 3H9V5H6.46173L11.3047 9.84298L9.8905 11.2572L5 6.3667V9H3V3Z" fill="#ffffff"></path>
+                                        <path d="M3 21H9V19H6.3764L11.3046 14.0718L9.89038 12.6576L5 17.548V15H3V21Z" fill="#ffffff"></path>
+                                        <path d="M15 21H21V15H19V17.5244L14.1332 12.6576L12.719 14.0718L17.6472 19H15V21Z" fill="#ffffff"></path>
+                                        <path d="M21 3H15V5H17.5619L12.7189 9.84301L14.1331 11.2572L19 6.39032V9H21V3Z" fill="#ffffff"></path>`;
+                    }
+                });
+
+
+
+                function openChatArea() {
+
+                    //$("#myIframe").each(function (index) {
+                    //	$(this).contents().find('#BotChatElement').css({ background: '#f00' });
+                    //});
+                }
+
+                $(document).ready(function () {
+                    $('#chatControl').click(function () {
+                        $('#chatArea').show();
+                        $('#chatArea').css('display', 'block');
+                        $('#chatArea').css('visibility', 'visible');
+                        $('#chatControl').hide();
+                    });
+                    $('#closeChat').click(function () {
+                        $('#chatArea').hide();
+                        $('#chatArea').css('display', 'none');
+                        $('#chatArea').css('visibility', 'hidden');
+                        $('#chatControl').show();
+
+                    });
+                    $('#refreshChat').click(function () {
+                        document.getElementById('myIframe').src = document.getElementById('myIframe').src
+                    });
+
+                    openChatArea();
+
+                })
+            });
+        </script>
+    </div>
+    <!-- bootstrap js -->
+    <script src="./js/bootstrap5.3.js"></script>
+    <!-- Add these lines after your existing CSS links -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+    <!-- main js -->
+    <script src="./js/main.js"></script>
+    <script src="./js/agenda.js"></script>
+
+
+
+
+    <!-- Send auth token + UPN to chatbot iframe when it loads -->
+    <!-- HTTP-COMPATIBLE VERSION - confirmed the site runs on plain HTTP,
+         which MSAL's own PKCE check cannot work on (crypto.subtle is
+         undefined on non-HTTPS pages, confirmed via console test). This
+         version does the token exchange on the backend instead (already
+         HTTPS), and never generates a PKCE challenge in the browser at
+         all. Requires exchange_code_endpoint.py deployed on the backend,
+         and this page's own URL registered as a "Web" platform redirect
+         URI (not "Single-page application") on the identity-mapping app. -->
+    <script>
+        (function () {
+            var CLIENT_ID = "a5f76f5d-9883-49a6-9736-d96e908ca9bd";
+            var TENANT_ID = "44497ee7-e4f2-42ea-ac33-427a891f6b1a";
+            var BACKEND_URL = "http://vm-wfe-moj-shar:8000"; // confirmed - backend runs locally on the WFE
+            var RENEW_INTERVAL_MINUTES = 10;
+
+            var currentToken = null;
+            var currentUpn = null;
+
+            function getToken() { return currentToken; }
+            function getUpn() { return currentUpn; }
+
+            const iframe = document.getElementById("myIframe");
+            if (!iframe) return;
+
+            let targetOrigin = "*";
+            try { targetOrigin = new URL(iframe.src, window.location.href).origin; } catch (e) {}
+
+            function sendAuthToIframe() {
+                if (!iframe.contentWindow) return;
+                const token = getToken();
+                const upn = getUpn();
+                if (!token) console.warn("[Chatbot] No token available to send.");
+                if (!upn) console.warn("[Chatbot] No UPN available to send.");
+                if (!token && !upn) return;
+                iframe.contentWindow.postMessage({ type: "TOKEN", token: token, upn: upn }, targetOrigin);
+                console.log("[Chatbot] Token and UPN sent to iframe.");
+            }
+
+            iframe.addEventListener("load", sendAuthToIframe);
+            window.addEventListener("message", function (e) {
+                if (e.origin !== targetOrigin || !e.data || e.data.type !== "REQUEST_TOKEN") return;
+                sendAuthToIframe();
+            });
+
+            // ===== HTTP-compatible sign-in: no PKCE, exchange done on
+            // our own HTTPS backend instead of in the browser =====
+            function redirectToSignIn(silent) {
+                var redirectUri = window.location.origin + window.location.pathname;
+                var params = new URLSearchParams({
+                    client_id: CLIENT_ID,
+                    response_type: "code",
+                    redirect_uri: redirectUri,
+                    scope: "User.Read openid profile",
+                    response_mode: "query",
+                });
+                if (silent) params.set("prompt", "none");
+                window.location.href = "https://login.microsoftonline.com/" + TENANT_ID + "/oauth2/v2.0/authorize?" + params.toString();
+            }
+
+            async function exchangeCode(code) {
+                var redirectUri = window.location.origin + window.location.pathname;
+                var response = await fetch(BACKEND_URL + "/api/auth/exchange-code", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ code: code, redirect_uri: redirectUri }),
+                });
+                if (!response.ok) throw new Error("Token exchange failed: " + response.status + " - " + (await response.text()));
+                return response.json();
+            }
+
+            function startRenewalTimer() {
+                // Silent-redirect renewal - briefly navigates the visible
+                // page each time (a known trade-off of avoiding PKCE),
+                // unlike the original hidden-iframe MSAL renewal.
+                setInterval(function () { redirectToSignIn(true); }, RENEW_INTERVAL_MINUTES * 60 * 1000);
+            }
+
+            async function initSignIn() {
+                var urlParams = new URLSearchParams(window.location.search);
+                var code = urlParams.get("code");
+                var error = urlParams.get("error");
+
+                if (code) {
+                    try {
+                        var result = await exchangeCode(code);
+                        currentToken = result.access_token;
+                        currentUpn = result.upn;
+                        sendAuthToIframe();
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                        startRenewalTimer();
+                    } catch (err) {
+                        console.error("[Chatbot] Code exchange failed.", err);
+                    }
+                    return;
+                }
+
+                if (error) {
+                    console.warn("[Chatbot] Silent sign-in unavailable (" + error + "), falling back to visible sign-in.");
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                    redirectToSignIn(false);
+                    return;
+                }
+
+                redirectToSignIn(true);
+            }
+
+            initSignIn().catch(function (err) {
+                console.error("[Chatbot] Sign-in failed unexpectedly.", err);
+            });
+        })();
+    </script>
+
+</body>
+
+</html>
