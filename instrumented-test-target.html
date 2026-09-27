@@ -49,8 +49,17 @@
     authStatusEl.textContent =
       'SUCCESS - received real token and UPN from parent page:\n\n' +
       'UPN: ' + upn + '\n\n' +
-      'Token (first 60 chars): ' + token.substring(0, 60) + '...\n' +
-      'Token length: ' + token.length + ' characters';
+      'FULL TOKEN (click below to select all, then copy):\n' + token;
+
+    var copyBtn = document.createElement('button');
+    copyBtn.textContent = 'Copy full token to clipboard';
+    copyBtn.style.marginTop = '8px';
+    copyBtn.onclick = function () {
+      navigator.clipboard.writeText(token).then(function () {
+        copyBtn.textContent = 'Copied!';
+      });
+    };
+    authStatusEl.parentNode.insertBefore(copyBtn, authStatusEl.nextSibling);
 
     callListItems(upn);
   });
