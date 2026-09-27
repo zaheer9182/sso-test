@@ -228,7 +228,7 @@
                 console.log("[DEBUG] redirect_uri sent:", redirectUri);
                 var response = await fetch(BACKEND_URL + "/api/auth/exchange-code", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
                     body: JSON.stringify({ code: code, redirect_uri: redirectUri }),
                 });
                 console.log("[DEBUG] Backend response status:", response.status);
