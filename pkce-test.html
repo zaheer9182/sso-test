@@ -57,6 +57,17 @@
     var TENANT_ID = "44497ee7-e4f2-42ea-ac33-427a891f6b1a";
     var REDIRECT_URI = window.location.origin + window.location.pathname;
 
+    // LOOP GUARD: if a previous attempt in this browser session already
+    // failed, stop here and show the error instead of retrying - without
+    // this, a real config problem (e.g. redirect URI not registered)
+    // causes an infinite reload loop, repeatedly hitting Entra's servers.
+    var priorFailure = sessionStorage.getItem('pkce_test_failure');
+    if (priorFailure) {
+      statusEl.className = 'box err';
+      statusEl.textContent = 'STOPPED - a previous attempt in this session already failed, not retrying automatically:\n\n' + priorFailure + '\n\nClear this by opening a fresh Incognito window, or run sessionStorage.clear() in the console.';
+      return;
+    }
+
     var msalInstance = new msal.PublicClientApplication({
       auth: { clientId: CLIENT_ID, authority: "https://login.microsoftonline.com/" + TENANT_ID, redirectUri: REDIRECT_URI },
       cache: { cacheLocation: "sessionStorage" },
@@ -65,7 +76,9 @@
     await msalInstance.initialize();
 
     var redirectResponse = await msalInstance.handleRedirectPromise().catch(function (e) {
-      statusEl.textContent += '\n\nhandleRedirectPromise threw: ' + e.errorCode + ' - ' + e.errorMessage;
+      var msg = 'handleRedirectPromise threw: ' + e.errorCode + ' - ' + e.errorMessage;
+      statusEl.textContent += '\n\n' + msg;
+      sessionStorage.setItem('pkce_test_failure', msg);
       return null;
     });
     if (redirectResponse) {
@@ -117,6 +130,9 @@
       // which does not depend on third-party cookies at all.
       statusEl.className = 'box waiting';
       statusEl.textContent = 'ssoSilent failed (' + e.errorCode + ') - falling back to a real sign-in redirect to show a genuine token...';
+      // Mark BEFORE navigating away, so if this redirect also comes
+      // back with an error, the guard above stops it from looping.
+      sessionStorage.setItem('pkce_test_failure', 'loginRedirect fallback was attempted after ssoSilent failed with ' + e.errorCode);
       await msalInstance.loginRedirect({ scopes: ["User.Read"] });
     }
   }
