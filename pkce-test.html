@@ -3,6 +3,16 @@
 <head>
 <meta charset="UTF-8" />
 <title>PKCE-in-HTTP-iframe Test</title>
+<script>
+  var msalLoadFailed = false;
+  window.addEventListener('error', function (e) {
+    if (e.target && e.target.tagName === 'SCRIPT' && e.target.src && e.target.src.indexOf('msauth') !== -1) {
+      msalLoadFailed = true;
+      document.getElementById('cryptoCheck').insertAdjacentHTML('afterend',
+        '<div class="box err">MSAL LIBRARY ITSELF FAILED TO LOAD from ' + e.target.src + ' - this is a SEPARATE issue from crypto.subtle (e.g. network block, CSP, or the CDN being unreachable from this network). This needs to be resolved separately before the PKCE test itself can run.</div>');
+    }
+  }, true);
+</script>
 <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
 <style>
   body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; padding: 16px; background: #fafafa; }
@@ -33,6 +43,12 @@
     'Parent page (if embedded): ' + (document.referrer || '(no referrer / opened directly, not embedded)');
   // ==================================================================
 
+  if (typeof msal === 'undefined') {
+    statusEl.className = 'box err';
+    statusEl.textContent = 'Cannot proceed - the MSAL library itself did not load (see error above). This is separate from the crypto.subtle result.';
+    return;
+  }
+
   var CLIENT_ID = "a5f76f5d-9883-49a6-9736-d96e908ca9bd";
   var TENANT_ID = "44497ee7-e4f2-42ea-ac33-427a891f6b1a";
   var REDIRECT_URI = window.location.origin + window.location.pathname;
@@ -61,7 +77,15 @@
     try {
       var result = await msalInstance.ssoSilent({ scopes: ["User.Read"] });
       statusEl.className = 'box ok';
-      statusEl.textContent = 'SUCCESS - ssoSilent worked with real PKCE, inside this iframe: ' + result.account.username;
+      statusEl.textContent =
+        'SUCCESS - ssoSilent worked with real PKCE, inside this iframe:\n\n' +
+        'Account: ' + result.account.username + '\n\n' +
+        'FULL TOKEN:\n' + result.accessToken;
+
+      var copyBtn = document.createElement('button');
+      copyBtn.textContent = 'Copy token';
+      copyBtn.onclick = function () { navigator.clipboard.writeText(result.accessToken); copyBtn.textContent = 'Copied!'; };
+      statusEl.parentNode.insertBefore(copyBtn, statusEl.nextSibling);
     } catch (e) {
       statusEl.className = 'box err';
       statusEl.textContent =
