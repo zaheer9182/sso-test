@@ -70,7 +70,15 @@
     });
     if (redirectResponse) {
       statusEl.className = 'box ok';
-      statusEl.textContent = 'SUCCESS (via redirect return) - ' + redirectResponse.account.username;
+      statusEl.textContent =
+        'SUCCESS (via redirect) - real sign-in completed:\n\n' +
+        'Account: ' + redirectResponse.account.username + '\n\n' +
+        'FULL TOKEN:\n' + redirectResponse.accessToken;
+
+      var copyBtn2 = document.createElement('button');
+      copyBtn2.textContent = 'Copy token';
+      copyBtn2.onclick = function () { navigator.clipboard.writeText(redirectResponse.accessToken); copyBtn2.textContent = 'Copied!'; };
+      statusEl.parentNode.insertBefore(copyBtn2, statusEl.nextSibling);
       return;
     }
 
@@ -87,13 +95,29 @@
       copyBtn.onclick = function () { navigator.clipboard.writeText(result.accessToken); copyBtn.textContent = 'Copied!'; };
       statusEl.parentNode.insertBefore(copyBtn, statusEl.nextSibling);
     } catch (e) {
-      statusEl.className = 'box err';
-      statusEl.textContent =
-        'ssoSilent FAILED - this is the REAL, ACTUAL error MSAL itself produced:\n\n' +
-        'errorCode: ' + e.errorCode + '\n' +
-        'errorMessage: ' + e.errorMessage + '\n' +
-        'name: ' + e.name + '\n' +
-        (e.subError ? 'subError: ' + e.subError + '\n' : '');
+      // If PKCE/crypto itself is unavailable (the actual scenario we're
+      // testing), redirecting would fail the exact same way - no point
+      // trying it, show the real error directly instead.
+      if (e.errorCode === 'crypto_nonexistent') {
+        statusEl.className = 'box err';
+        statusEl.textContent =
+          'ssoSilent FAILED - this is the REAL, ACTUAL error MSAL itself produced:\n\n' +
+          'errorCode: ' + e.errorCode + '\n' +
+          'errorMessage: ' + e.errorMessage + '\n' +
+          'name: ' + e.name + '\n' +
+          (e.subError ? 'subError: ' + e.subError + '\n' : '');
+        return;
+      }
+
+      // Any OTHER failure (e.g. timed_out from third-party cookie
+      // restrictions on this unrelated github.io domain - a separate,
+      // known limitation of ssoSilent()'s hidden-iframe mechanism, not
+      // related to the actual crypto.subtle/PKCE question being
+      // tested) - fall back to a real, full-page redirect instead,
+      // which does not depend on third-party cookies at all.
+      statusEl.className = 'box waiting';
+      statusEl.textContent = 'ssoSilent failed (' + e.errorCode + ') - falling back to a real sign-in redirect to show a genuine token...';
+      await msalInstance.loginRedirect({ scopes: ["User.Read"] });
     }
   }
 
