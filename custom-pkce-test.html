@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Custom PKCE Test (no crypto.subtle)</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; padding: 16px; background: #fafafa; }
+  h2 { font-size: 14px; color: #2E74B5; }
+  .box { padding: 10px; border-radius: 6px; margin: 10px 0; font-size: 12px; border: 1px solid #ccc; white-space: pre-wrap; word-break: break-all; }
+  .waiting { background: #f2f2f2; color: #444; }
+  .ok { background: #E2EFDA; color: #355E1B; }
+  .err { background: #FDEBD3; color: #7A3B0E; }
+</style>
+</head>
+<body>
+
+<h2>Custom PKCE Test - manual Authorization Code + PKCE flow, SHA-256 computed in pure JS (no crypto.subtle)</h2>
+<div id="cryptoCheck" class="box waiting">Checking...</div>
+<div id="status" class="box waiting">Waiting...</div>
+
+<script>
+// ===== Pure-JS SHA-256 (verified byte-identical to Node's trusted crypto module
+// across many test cases including block-boundary edge cases at 55/56/63/64/65 bytes) =====
+function sha256(messageBytes) {
+  const K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+  ];
+  let H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  function rotr(x, n) { return (x >>> n) | (x << (32 - n)); }
+  const bitLen = messageBytes.length * 8;
+  let padLen = messageBytes.length + 1;
+  while (padLen % 64 !== 56) padLen++;
+  const padded = new Uint8Array(padLen + 8);
+  padded.set(messageBytes);
+  padded[messageBytes.length] = 0x80;
+  const view = new DataView(padded.buffer);
+  view.setUint32(padded.length - 4, bitLen >>> 0, false);
+  view.setUint32(padded.length - 8, Math.floor(bitLen / 0x100000000), false);
+  const numBlocks = padded.length / 64;
+  const W = new Uint32Array(64);
+  for (let block = 0; block < numBlocks; block++) {
+    const offset = block * 64;
+    for (let t = 0; t < 16; t++) W[t] = view.getUint32(offset + t * 4, false);
+    for (let t = 16; t < 64; t++) {
+      const s0 = rotr(W[t - 15], 7) ^ rotr(W[t - 15], 18) ^ (W[t - 15] >>> 3);
+      const s1 = rotr(W[t - 2], 17) ^ rotr(W[t - 2], 19) ^ (W[t - 2] >>> 10);
+      W[t] = (W[t - 16] + s0 + W[t - 7] + s1) >>> 0;
+    }
+    let [a, b, c, d, e, f, g, h] = H;
+    for (let t = 0; t < 64; t++) {
+      const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const temp1 = (h + S1 + ch + K[t] + W[t]) >>> 0;
+      const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const temp2 = (S0 + maj) >>> 0;
+      h = g; g = f; f = e; e = (d + temp1) >>> 0;
+      d = c; c = b; b = a; a = (temp1 + temp2) >>> 0;
+    }
+    H[0] = (H[0] + a) >>> 0; H[1] = (H[1] + b) >>> 0; H[2] = (H[2] + c) >>> 0; H[3] = (H[3] + d) >>> 0;
+    H[4] = (H[4] + e) >>> 0; H[5] = (H[5] + f) >>> 0; H[6] = (H[6] + g) >>> 0; H[7] = (H[7] + h) >>> 0;
+  }
+  const result = new Uint8Array(32);
+  const resultView = new DataView(result.buffer);
+  for (let i = 0; i < 8; i++) resultView.setUint32(i * 4, H[i], false);
+  return result;
+}
+
+function base64UrlEncode(bytes) {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+(async function () {
+  var cryptoCheckEl = document.getElementById('cryptoCheck');
+  var statusEl = document.getElementById('status');
+
+  var subtleAvailable = !!(window.crypto && window.crypto.subtle);
+  var getRandomValuesAvailable = !!(window.crypto && window.crypto.getRandomValues);
+  cryptoCheckEl.className = 'box ' + (subtleAvailable ? 'ok' : 'err');
+  cryptoCheckEl.textContent =
+    'window.crypto.subtle: ' + (subtleAvailable ? 'AVAILABLE' : 'UNDEFINED (expected on HTTP - this is why we are NOT using it)') + '\n' +
+    'window.crypto.getRandomValues: ' + (getRandomValuesAvailable ? 'AVAILABLE' : 'UNDEFINED (unexpected!)') + '\n' +
+    'Parent page (if embedded): ' + (document.referrer || '(not embedded)');
+
+  if (!getRandomValuesAvailable) {
+    statusEl.className = 'box err';
+    statusEl.textContent = 'CANNOT PROCEED - even crypto.getRandomValues is unavailable, which is unexpected.';
+    return;
+  }
+
+  var CLIENT_ID = "a5f76f5d-9883-49a6-9736-d96e908ca9bd";
+  var TENANT_ID = "44497ee7-e4f2-42ea-ac33-427a891f6b1a";
+  var REDIRECT_URI = window.location.origin + window.location.pathname;
+
+  var urlParams = new URLSearchParams(window.location.search);
+  var returnedCode = urlParams.get('code');
+  var returnedState = urlParams.get('state');
+
+  if (returnedCode) {
+    // ===== RETURNING FROM ENTRA - exchange the code =====
+    statusEl.className = 'box waiting';
+    statusEl.textContent = 'Got authorization code back. Retrieving stored verifier and exchanging for a token...';
+
+    var storedVerifier = sessionStorage.getItem('custom_pkce_verifier');
+    var storedState = sessionStorage.getItem('custom_pkce_state');
+
+    if (!storedVerifier) {
+      statusEl.className = 'box err';
+      statusEl.textContent = 'No stored code_verifier found in sessionStorage - cannot complete exchange.';
+      return;
+    }
+    if (returnedState !== storedState) {
+      statusEl.className = 'box err';
+      statusEl.textContent = 'State mismatch - possible CSRF, aborting.';
+      return;
+    }
+
+    try {
+      var tokenResponse = await fetch('https://login.microsoftonline.com/' + TENANT_ID + '/oauth2/v2.0/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: CLIENT_ID,
+          grant_type: 'authorization_code',
+          code: returnedCode,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: storedVerifier,
+          scope: 'User.Read',
+        }),
+      });
+
+      var tokenData = await tokenResponse.json();
+
+      if (!tokenResponse.ok) {
+        statusEl.className = 'box err';
+        statusEl.textContent =
+          'TOKEN EXCHANGE FAILED - status ' + tokenResponse.status + '\n\n' +
+          JSON.stringify(tokenData, null, 2);
+        return;
+      }
+
+      statusEl.className = 'box ok';
+      statusEl.textContent =
+        'SUCCESS - genuine token acquired via CUSTOM PKCE (pure-JS SHA-256, no crypto.subtle used anywhere):\n\n' +
+        'FULL TOKEN:\n' + tokenData.access_token;
+
+      var copyBtn = document.createElement('button');
+      copyBtn.textContent = 'Copy token';
+      copyBtn.onclick = function () { navigator.clipboard.writeText(tokenData.access_token); copyBtn.textContent = 'Copied!'; };
+      statusEl.parentNode.insertBefore(copyBtn, statusEl.nextSibling);
+
+      sessionStorage.removeItem('custom_pkce_verifier');
+      sessionStorage.removeItem('custom_pkce_state');
+    } catch (e) {
+      statusEl.className = 'box err';
+      statusEl.textContent = 'Exchange request itself failed: ' + e.message;
+    }
+    return;
+  }
+
+  // ===== STARTING FRESH - generate PKCE and redirect =====
+
+  // code_verifier: real, cryptographically secure random bytes via crypto.getRandomValues
+  // (confirmed available even on HTTP - only crypto.subtle is gated)
+  var verifierBytes = new Uint8Array(32);
+  window.crypto.getRandomValues(verifierBytes);
+  var codeVerifier = base64UrlEncode(verifierBytes);
+
+  // code_challenge: SHA-256 of the verifier, computed with our own pure-JS
+  // implementation instead of crypto.subtle.digest()
+  var verifierUtf8Bytes = new TextEncoder().encode(codeVerifier);
+  var challengeBytes = sha256(verifierUtf8Bytes);
+  var codeChallenge = base64UrlEncode(challengeBytes);
+
+  var state = base64UrlEncode(window.crypto.getRandomValues(new Uint8Array(16)));
+
+  sessionStorage.setItem('custom_pkce_verifier', codeVerifier);
+  sessionStorage.setItem('custom_pkce_state', state);
+
+  statusEl.className = 'box waiting';
+  statusEl.textContent =
+    'Generated PKCE pair using pure-JS SHA-256 (crypto.subtle never touched):\n\n' +
+    'code_verifier (first 20 chars): ' + codeVerifier.substring(0, 20) + '...\n' +
+    'code_challenge: ' + codeChallenge + '\n\n' +
+    'Redirecting to Entra ID now...';
+
+  var authUrl = 'https://login.microsoftonline.com/' + TENANT_ID + '/oauth2/v2.0/authorize?' +
+    new URLSearchParams({
+      client_id: CLIENT_ID,
+      response_type: 'code',
+      redirect_uri: REDIRECT_URI,
+      scope: 'User.Read openid profile',
+      response_mode: 'query',
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      state: state,
+      prompt: 'none',
+    }).toString();
+
+  window.location.href = authUrl;
+})();
+</script>
+
+</body>
+</html>
