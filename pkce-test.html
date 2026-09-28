@@ -3,25 +3,6 @@
 <head>
 <meta charset="UTF-8" />
 <title>PKCE-in-HTTP-iframe Test</title>
-<script>
-  var msalLoadFailed = false;
-  window.addEventListener('error', function (e) {
-    if (e.target && e.target.tagName === 'SCRIPT' && e.target.src && e.target.src.indexOf('msauth') !== -1) {
-      msalLoadFailed = true;
-    }
-  }, true);
-</script>
-<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
-<script>
-  // Microsoft's own documented CDN fallback pattern - confirmed via
-  // Microsoft's own support thread that the primary US-West CDN
-  // (alcdn.msauth.net) has real, confirmed reliability issues on some
-  // networks (e.g. not reachable over IPv6) - fall back to the
-  // North Europe region automatically if the primary failed to load.
-  if (typeof msal === 'undefined') {
-    document.write(unescape("%3Cscript src='https://alcdn.msftauth.net/browser/2.38.3/js/msal-browser.min.js' type='text/javascript'%3E%3C/script%3E"));
-  }
-</script>
 <style>
   body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; padding: 16px; background: #fafafa; }
   h2 { font-size: 14px; color: #2E74B5; }
@@ -51,24 +32,59 @@
     'Parent page (if embedded): ' + (document.referrer || '(no referrer / opened directly, not embedded)');
   // ==================================================================
 
-  if (typeof msal === 'undefined') {
-    statusEl.className = 'box err';
-    statusEl.textContent = 'Cannot proceed - the MSAL library itself did not load (see error above). This is separate from the crypto.subtle result.';
-    return;
+  // Robust CDN loading - a proper, dynamically-created <script> element
+  // with a real onerror handler, NOT document.write (which triggers
+  // browser warnings/potential blocking for cross-origin scripts).
+  // Tries the primary CDN first, falls back to Microsoft's alternate
+  // region automatically if it fails - confirmed via Microsoft's own
+  // support docs that the primary CDN has real reliability issues on
+  // some networks (e.g. unreachable over IPv6).
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = function () { resolve(); };
+      s.onerror = function () { reject(new Error('Failed to load: ' + src)); };
+      document.head.appendChild(s);
+    });
   }
 
-  var CLIENT_ID = "a5f76f5d-9883-49a6-9736-d96e908ca9bd";
-  var TENANT_ID = "44497ee7-e4f2-42ea-ac33-427a891f6b1a";
-  var REDIRECT_URI = window.location.origin + window.location.pathname;
-
-  var msalInstance = new msal.PublicClientApplication({
-    auth: { clientId: CLIENT_ID, authority: "https://login.microsoftonline.com/" + TENANT_ID, redirectUri: REDIRECT_URI },
-    cache: { cacheLocation: "sessionStorage" },
-  });
+  function loadMsal() {
+    return loadScript('https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js')
+      .catch(function () {
+        statusEl.textContent = 'Primary CDN failed, trying fallback region...';
+        return loadScript('https://alcdn.msftauth.net/browser/2.38.3/js/msal-browser.min.js');
+      });
+  }
 
   async function run() {
     statusEl.className = 'box waiting';
+    statusEl.textContent = 'Loading MSAL library...';
+
+    try {
+      await loadMsal();
+    } catch (loadErr) {
+      statusEl.className = 'box err';
+      statusEl.textContent = 'MSAL library failed to load from BOTH CDN regions: ' + loadErr.message;
+      return;
+    }
+
+    if (typeof msal === 'undefined') {
+      statusEl.className = 'box err';
+      statusEl.textContent = 'Scripts loaded without error, but msal global is still undefined - unexpected.';
+      return;
+    }
+
     statusEl.textContent = (subtleAvailable ? 'crypto.subtle IS available.' : 'crypto.subtle is UNDEFINED.') + ' Attempting the REAL, FULL ssoSilent() call now regardless, to show the actual MSAL result...';
+
+    var CLIENT_ID = "a5f76f5d-9883-49a6-9736-d96e908ca9bd";
+    var TENANT_ID = "44497ee7-e4f2-42ea-ac33-427a891f6b1a";
+    var REDIRECT_URI = window.location.origin + window.location.pathname;
+
+    var msalInstance = new msal.PublicClientApplication({
+      auth: { clientId: CLIENT_ID, authority: "https://login.microsoftonline.com/" + TENANT_ID, redirectUri: REDIRECT_URI },
+      cache: { cacheLocation: "sessionStorage" },
+    });
 
     await msalInstance.initialize();
 
