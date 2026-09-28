@@ -8,12 +8,20 @@
   window.addEventListener('error', function (e) {
     if (e.target && e.target.tagName === 'SCRIPT' && e.target.src && e.target.src.indexOf('msauth') !== -1) {
       msalLoadFailed = true;
-      document.getElementById('cryptoCheck').insertAdjacentHTML('afterend',
-        '<div class="box err">MSAL LIBRARY ITSELF FAILED TO LOAD from ' + e.target.src + ' - this is a SEPARATE issue from crypto.subtle (e.g. network block, CSP, or the CDN being unreachable from this network). This needs to be resolved separately before the PKCE test itself can run.</div>');
     }
   }, true);
 </script>
 <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+<script>
+  // Microsoft's own documented CDN fallback pattern - confirmed via
+  // Microsoft's own support thread that the primary US-West CDN
+  // (alcdn.msauth.net) has real, confirmed reliability issues on some
+  // networks (e.g. not reachable over IPv6) - fall back to the
+  // North Europe region automatically if the primary failed to load.
+  if (typeof msal === 'undefined') {
+    document.write(unescape("%3Cscript src='https://alcdn.msftauth.net/browser/2.38.3/js/msal-browser.min.js' type='text/javascript'%3E%3C/script%3E"));
+  }
+</script>
 <style>
   body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; padding: 16px; background: #fafafa; }
   h2 { font-size: 14px; color: #2E74B5; }
