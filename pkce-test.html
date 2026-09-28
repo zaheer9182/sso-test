@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>PKCE-in-HTTP-iframe Test</title>
+<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; padding: 16px; background: #fafafa; }
+  h2 { font-size: 14px; color: #2E74B5; }
+  .box { padding: 10px; border-radius: 6px; margin: 10px 0; font-size: 12px; border: 1px solid #ccc; white-space: pre-wrap; word-break: break-all; }
+  .waiting { background: #f2f2f2; color: #444; }
+  .ok { background: #E2EFDA; color: #355E1B; }
+  .err { background: #FDEBD3; color: #7A3B0E; }
+</style>
+</head>
+<body>
+
+<h2>PKCE / crypto.subtle test - running inside whatever page embeds this iframe</h2>
+<div id="cryptoCheck" class="box waiting">Checking window.crypto.subtle...</div>
+<div id="status" class="box waiting">Waiting...</div>
+
+<script>
+(function () {
+  var cryptoCheckEl = document.getElementById('cryptoCheck');
+  var statusEl = document.getElementById('status');
+
+  // ===== THE ACTUAL, DIRECT TEST - this is the real question =====
+  var subtleAvailable = !!(window.crypto && window.crypto.subtle);
+  cryptoCheckEl.className = 'box ' + (subtleAvailable ? 'ok' : 'err');
+  cryptoCheckEl.textContent =
+    'window.crypto.subtle: ' + (subtleAvailable ? 'AVAILABLE' : 'UNDEFINED') + '\n' +
+    'This page\'s own origin: ' + window.location.origin + '\n' +
+    'Parent page (if embedded): ' + (document.referrer || '(no referrer / opened directly, not embedded)');
+  // ==================================================================
+
+  if (!subtleAvailable) {
+    statusEl.className = 'box err';
+    statusEl.textContent = 'crypto.subtle is undefined here - standard MSAL/PKCE cannot run in this context, confirmed directly. This matches the original finding: an HTTP ancestor in the frame chain blocks it, even for an HTTPS-hosted iframe.';
+    return; // no point even trying MSAL if subtle isn't there
+  }
+
+  var CLIENT_ID = "a5f76f5d-9883-49a6-9736-d96e908ca9bd";
+  var TENANT_ID = "44497ee7-e4f2-42ea-ac33-427a891f6b1a";
+  var REDIRECT_URI = window.location.origin + window.location.pathname;
+
+  var msalInstance = new msal.PublicClientApplication({
+    auth: { clientId: CLIENT_ID, authority: "https://login.microsoftonline.com/" + TENANT_ID, redirectUri: REDIRECT_URI },
+    cache: { cacheLocation: "sessionStorage" },
+  });
+
+  async function run() {
+    statusEl.className = 'box waiting';
+    statusEl.textContent = 'crypto.subtle IS available - now trying real ssoSilent() (with PKCE)...';
+
+    await msalInstance.initialize();
+
+    var redirectResponse = await msalInstance.handleRedirectPromise().catch(function (e) {
+      statusEl.textContent += '\n\nhandleRedirectPromise threw: ' + e.errorCode + ' - ' + e.errorMessage;
+      return null;
+    });
+    if (redirectResponse) {
+      statusEl.className = 'box ok';
+      statusEl.textContent = 'SUCCESS (via redirect return) - ' + redirectResponse.account.username;
+      return;
+    }
+
+    try {
+      var result = await msalInstance.ssoSilent({ scopes: ["User.Read"] });
+      statusEl.className = 'box ok';
+      statusEl.textContent = 'SUCCESS - ssoSilent worked with real PKCE, inside this iframe: ' + result.account.username;
+    } catch (e) {
+      statusEl.className = 'box err';
+      statusEl.textContent = 'ssoSilent FAILED: ' + e.errorCode + ' - ' + e.errorMessage;
+    }
+  }
+
+  run();
+})();
+</script>
+
+</body>
+</html>
