@@ -33,12 +33,6 @@
     'Parent page (if embedded): ' + (document.referrer || '(no referrer / opened directly, not embedded)');
   // ==================================================================
 
-  if (!subtleAvailable) {
-    statusEl.className = 'box err';
-    statusEl.textContent = 'crypto.subtle is undefined here - standard MSAL/PKCE cannot run in this context, confirmed directly. This matches the original finding: an HTTP ancestor in the frame chain blocks it, even for an HTTPS-hosted iframe.';
-    return; // no point even trying MSAL if subtle isn't there
-  }
-
   var CLIENT_ID = "a5f76f5d-9883-49a6-9736-d96e908ca9bd";
   var TENANT_ID = "44497ee7-e4f2-42ea-ac33-427a891f6b1a";
   var REDIRECT_URI = window.location.origin + window.location.pathname;
@@ -50,7 +44,7 @@
 
   async function run() {
     statusEl.className = 'box waiting';
-    statusEl.textContent = 'crypto.subtle IS available - now trying real ssoSilent() (with PKCE)...';
+    statusEl.textContent = (subtleAvailable ? 'crypto.subtle IS available.' : 'crypto.subtle is UNDEFINED.') + ' Attempting the REAL, FULL ssoSilent() call now regardless, to show the actual MSAL result...';
 
     await msalInstance.initialize();
 
@@ -70,7 +64,12 @@
       statusEl.textContent = 'SUCCESS - ssoSilent worked with real PKCE, inside this iframe: ' + result.account.username;
     } catch (e) {
       statusEl.className = 'box err';
-      statusEl.textContent = 'ssoSilent FAILED: ' + e.errorCode + ' - ' + e.errorMessage;
+      statusEl.textContent =
+        'ssoSilent FAILED - this is the REAL, ACTUAL error MSAL itself produced:\n\n' +
+        'errorCode: ' + e.errorCode + '\n' +
+        'errorMessage: ' + e.errorMessage + '\n' +
+        'name: ' + e.name + '\n' +
+        (e.subError ? 'subError: ' + e.subError + '\n' : '');
     }
   }
 
