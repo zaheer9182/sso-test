@@ -51,22 +51,9 @@
       return;
     }
 
-    statusEl.textContent = (subtleAvailable ? 'crypto.subtle IS available.' : 'crypto.subtle is UNDEFINED.') + ' Attempting the REAL, FULL ssoSilent() call now regardless, to show the actual MSAL result...';
-
     var CLIENT_ID = "a5f76f5d-9883-49a6-9736-d96e908ca9bd";
     var TENANT_ID = "44497ee7-e4f2-42ea-ac33-427a891f6b1a";
     var REDIRECT_URI = window.location.origin + window.location.pathname;
-
-    // LOOP GUARD: if a previous attempt in this browser session already
-    // failed, stop here and show the error instead of retrying - without
-    // this, a real config problem (e.g. redirect URI not registered)
-    // causes an infinite reload loop, repeatedly hitting Entra's servers.
-    var priorFailure = sessionStorage.getItem('pkce_test_failure');
-    if (priorFailure) {
-      statusEl.className = 'box err';
-      statusEl.textContent = 'STOPPED - a previous attempt in this session already failed, not retrying automatically:\n\n' + priorFailure + '\n\nClear this by opening a fresh Incognito window, or run sessionStorage.clear() in the console.';
-      return;
-    }
 
     var msalInstance = new msal.PublicClientApplication({
       auth: { clientId: CLIENT_ID, authority: "https://login.microsoftonline.com/" + TENANT_ID, redirectUri: REDIRECT_URI },
@@ -75,66 +62,49 @@
 
     await msalInstance.initialize();
 
+    // Check first: are we returning FROM a redirect right now? (real
+    // code in the URL). Handle that before anything else.
     var redirectResponse = await msalInstance.handleRedirectPromise().catch(function (e) {
-      var msg = 'handleRedirectPromise threw: ' + e.errorCode + ' - ' + e.errorMessage;
-      statusEl.textContent += '\n\n' + msg;
-      sessionStorage.setItem('pkce_test_failure', msg);
-      return null;
+      statusEl.className = 'box err';
+      statusEl.textContent = 'handleRedirectPromise error: ' + e.errorCode + ' - ' + e.errorMessage;
+      return 'ERROR';
     });
+
+    if (redirectResponse === 'ERROR') return;
+
     if (redirectResponse) {
       statusEl.className = 'box ok';
       statusEl.textContent =
-        'SUCCESS (via redirect) - real sign-in completed:\n\n' +
+        'SUCCESS - real sign-in completed via redirect:\n\n' +
         'Account: ' + redirectResponse.account.username + '\n\n' +
         'FULL TOKEN:\n' + redirectResponse.accessToken;
 
-      var copyBtn2 = document.createElement('button');
-      copyBtn2.textContent = 'Copy token';
-      copyBtn2.onclick = function () { navigator.clipboard.writeText(redirectResponse.accessToken); copyBtn2.textContent = 'Copied!'; };
-      statusEl.parentNode.insertBefore(copyBtn2, statusEl.nextSibling);
+      var copyBtn = document.createElement('button');
+      copyBtn.textContent = 'Copy token';
+      copyBtn.onclick = function () { navigator.clipboard.writeText(redirectResponse.accessToken); copyBtn.textContent = 'Copied!'; };
+      statusEl.parentNode.insertBefore(copyBtn, statusEl.nextSibling);
       return;
     }
 
-    try {
-      var result = await msalInstance.ssoSilent({ scopes: ["User.Read"] });
-      statusEl.className = 'box ok';
-      statusEl.textContent =
-        'SUCCESS - ssoSilent worked with real PKCE, inside this iframe:\n\n' +
-        'Account: ' + result.account.username + '\n\n' +
-        'FULL TOKEN:\n' + result.accessToken;
-
-      var copyBtn = document.createElement('button');
-      copyBtn.textContent = 'Copy token';
-      copyBtn.onclick = function () { navigator.clipboard.writeText(result.accessToken); copyBtn.textContent = 'Copied!'; };
-      statusEl.parentNode.insertBefore(copyBtn, statusEl.nextSibling);
-    } catch (e) {
-      // If PKCE/crypto itself is unavailable (the actual scenario we're
-      // testing), redirecting would fail the exact same way - no point
-      // trying it, show the real error directly instead.
-      if (e.errorCode === 'crypto_nonexistent') {
-        statusEl.className = 'box err';
-        statusEl.textContent =
-          'ssoSilent FAILED - this is the REAL, ACTUAL error MSAL itself produced:\n\n' +
-          'errorCode: ' + e.errorCode + '\n' +
-          'errorMessage: ' + e.errorMessage + '\n' +
-          'name: ' + e.name + '\n' +
-          (e.subError ? 'subError: ' + e.subError + '\n' : '');
-        return;
-      }
-
-      // Any OTHER failure (e.g. timed_out from third-party cookie
-      // restrictions on this unrelated github.io domain - a separate,
-      // known limitation of ssoSilent()'s hidden-iframe mechanism, not
-      // related to the actual crypto.subtle/PKCE question being
-      // tested) - fall back to a real, full-page redirect instead,
-      // which does not depend on third-party cookies at all.
-      statusEl.className = 'box waiting';
-      statusEl.textContent = 'ssoSilent failed (' + e.errorCode + ') - falling back to a real sign-in redirect to show a genuine token...';
-      // Mark BEFORE navigating away, so if this redirect also comes
-      // back with an error, the guard above stops it from looping.
-      sessionStorage.setItem('pkce_test_failure', 'loginRedirect fallback was attempted after ssoSilent failed with ' + e.errorCode);
-      await msalInstance.loginRedirect({ scopes: ["User.Read"] });
+    // Not returning from a redirect - if crypto.subtle is missing,
+    // this is the actual finding we're demonstrating; show it directly
+    // without attempting anything further (a redirect would fail
+    // identically, since it needs crypto.subtle internally too).
+    if (!subtleAvailable) {
+      statusEl.className = 'box err';
+      statusEl.textContent = 'crypto.subtle is UNDEFINED - cannot proceed with sign-in in this context. This is the actual finding being demonstrated.';
+      return;
     }
+
+    // crypto.subtle IS available (standalone case) - go straight to a
+    // single, simple, real redirect. Deliberately skipping ssoSilent()
+    // entirely here - it adds hidden-iframe complexity/timing issues
+    // on this unrelated third-party domain (github.io) that have
+    // nothing to do with the actual question being tested. A plain
+    // redirect is the simplest, most reliable way to get one clean,
+    // real, visible token for this demonstration.
+    statusEl.textContent = 'crypto.subtle available - redirecting to sign in...';
+    await msalInstance.loginRedirect({ scopes: ["User.Read"] });
   }
 
   run();
