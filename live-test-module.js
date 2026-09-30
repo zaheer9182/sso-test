@@ -58,12 +58,12 @@ var MojChatbotSso = (function () {
 
   // ===== CONFIGURATION =====
   // PRODUCTION - real client identity-mapping app (COMMENTED for this test run)
-  // var CLIENT_ID = '0dd93c83-b3c4-4070-bb0e-f4be7a8db3a9';
-  // var TENANT_ID = 'c3e95fdb-c64c-4f84-8388-f0c1c67f1f68';
+  var CLIENT_ID = '0dd93c83-b3c4-4070-bb0e-f4be7a8db3a9';
+  var TENANT_ID = 'c3e95fdb-c64c-4f84-8388-f0c1c67f1f68';
 
   // LAB/TEST TENANT - ACTIVE for this test run
-  var CLIENT_ID = 'a5f76f5d-9883-49a6-9736-d96e908ca9bd';
-  var TENANT_ID = '44497ee7-e4f2-42ea-ac33-427a891f6b1a';
+  //var CLIENT_ID = 'a5f76f5d-9883-49a6-9736-d96e908ca9bd';
+  //var TENANT_ID = '44497ee7-e4f2-42ea-ac33-427a891f6b1a';
 
   var SCOPES_MSAL = ['openid', 'profile', 'User.Read'];
   var SCOPE_CUSTOM = 'User.Read';
