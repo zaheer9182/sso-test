@@ -79,10 +79,8 @@ function sha256(message) {
     tenantId: 'c3e95fdb-c64c-4f84-8388-f0c1c67f1f68',
     clientId: '0dd93c83-b3c4-4070-bb0e-f4be7a8db3a9',
     scope: 'openid profile api://0dd93c83-b3c4-4070-bb0e-f4be7a8db3a9/access_as_user offline_access',
-    // This file itself is the redirect page. Register exactly this address under
-    // "Single-page application" on the app registration.
-    redirectUri: location.origin + location.pathname,
-    silentWaitMs: 15000,
+    redirectUri: '',            // set below
+    silentWaitMs: 20000,
     echoWaitMs: 3000,
     popupWaitMs: 120000
   };
@@ -90,6 +88,31 @@ function sha256(message) {
   var params = new URLSearchParams(location.search);
   var hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
   function getParam(name) { return params.get(name) || hashParams.get(name); }
+
+  // ===== where does Microsoft send the frame back to? ================================
+  // Default: the redirect address that is ALREADY registered for the chat app (no change in Azure needed).
+  //   - If this file is served from the chat's own site, the real app page is the return page and
+  //     it reports back to us (needs the newest sso.ts build deployed).
+  //   - If this file is served from anywhere else, the return page is on another site: we can only see
+  //     how many pages the frame loaded, so the last step is inferred, not confirmed.
+  // Add ?redirect=self only if this file's own address has been registered as a SPA redirect address.
+  var APP_HOSTS = { 'assistant.moj.gov.qa': 1, 'stg.assistant.moj.gov.qa': 1, 'dev.assistant.moj.gov.qa': 1 };
+  var selfReturn = params.get('redirect') === 'self';
+  var appHost = APP_HOSTS[location.hostname] ? location.hostname : 'assistant.moj.gov.qa';
+  CONFIG.redirectUri = selfReturn ? location.origin + location.pathname : 'https://' + appHost + '/sharepoint';
+  var RETURN_MODE = selfReturn ? 'self' : (new URL(CONFIG.redirectUri).origin === location.origin ? 'app-same-origin' : 'app-cross-origin');
+  function stateFor(runId, variant, popup) { return (selfReturn ? 'diag.' : (popup ? 'moj-popup.' : 'moj-silent.')) + runId + '.' + variant; }
+  // Normalise what the return page tells us. The authorization code itself is never kept or shown.
+  function toLanded(e) {
+    if (!e || e.origin !== location.origin || !e.data) return null;
+    var d = e.data;
+    if (d.diag === 'landed') return d;
+    if (d.type === 'moj-sso-response' && typeof d.state === 'string') {
+      var parts = d.state.split('.');
+      return { diag: 'landed', runId: parts[1], variant: parts[2] || '', hasCode: !!d.code, error: d.error || null, errorDescription: String(d.errorDescription || '').slice(0, 200), viaApp: true };
+    }
+    return null;
+  }
 
   // ===== helpers =====================================================================
   function b64url(bytes) {
@@ -185,7 +208,7 @@ function sha256(message) {
     return new Promise(function (resolve) {
       var runId = rid(), pm = false, bcGot = false, bc = null, done = false;
       try { if (typeof BroadcastChannel === 'function') { bc = new BroadcastChannel('sso-diag-' + runId); bc.onmessage = function (e) { if (e.data && e.data.runId === runId) { bcGot = true; check(); } }; } } catch (e) {}
-      function onMsg(e) { if (e.data && e.data.diag === 'echo' && e.data.runId === runId) { pm = true; check(); } }
+      function onMsg(e) { if (e.origin === location.origin && e.data && e.data.diag === 'echo' && e.data.runId === runId) { pm = true; check(); } }
       window.addEventListener('message', onMsg);
       var f = makeFrame(sandbox, false);
       function finish() {
@@ -205,7 +228,7 @@ function sha256(message) {
     return new Promise(function (resolve) {
       var runId = rid(), t0 = performance.now(), loads = [], landed = null, viaPM = false, viaBC = false;
       var finished = false, graceTimer = null, bc = null, frame = null, maxTimer = null;
-      function onMsg(e) { if (e.data && e.data.diag === 'landed' && e.data.runId === runId) { landed = landed || e.data; viaPM = true; settleSoon(); } }
+      function onMsg(e) { var l = toLanded(e); if (l && l.runId === runId) { landed = landed || l; viaPM = true; settleSoon(); } }
       function settleSoon() { if (!graceTimer) graceTimer = setTimeout(done, 600); }
       function done() {
         if (finished) return; finished = true;
@@ -215,7 +238,7 @@ function sha256(message) {
         resolve({ variant: v.name, loads: loads, landed: landed, viaPostMessage: viaPM, viaBroadcast: viaBC, bcSupported: !!bc, elapsed: Math.round(performance.now() - t0) });
       }
       makePkce().then(function (pkce) {
-        var url = buildAuthorizeUrl({ challenge: pkce.challenge, state: 'diag.' + runId + '.' + v.name, prompt: 'none', responseMode: v.responseMode, msalLike: v.msalLike });
+        var url = buildAuthorizeUrl({ challenge: pkce.challenge, state: stateFor(runId, v.name, false), prompt: 'none', responseMode: v.responseMode, msalLike: v.msalLike });
         try { if (typeof BroadcastChannel === 'function') { bc = new BroadcastChannel('sso-diag-' + runId); bc.onmessage = function (e) { if (e.data && e.data.runId === runId) { landed = landed || e.data; viaBC = true; settleSoon(); } }; } } catch (e) {}
         window.addEventListener('message', onMsg);
         frame = makeFrame(v.sandbox, showFrame());
@@ -239,32 +262,41 @@ function sha256(message) {
         try { if (!pop.closed) pop.close(); } catch (e) {}
         resolve({ blocked: false, landed: landed, why: why, elapsed: Math.round(performance.now() - t0) });
       }
-      function onMsg(e) { if (e.data && e.data.diag === 'landed' && e.data.runId === runId) { landed = landed || e.data; setTimeout(function () { done('returned'); }, 300); } }
+      function onMsg(e) { var l = toLanded(e); if (l && l.runId === runId) { landed = landed || l; setTimeout(function () { done('returned'); }, 300); } }
       window.addEventListener('message', onMsg);
       try { if (typeof BroadcastChannel === 'function') { bc = new BroadcastChannel('sso-diag-' + runId); bc.onmessage = function (e) { if (e.data && e.data.runId === runId) { landed = landed || e.data; setTimeout(function () { done('returned'); }, 300); } }; } } catch (e) {}
       poll = setInterval(function () { var closed = false; try { closed = pop.closed; } catch (e) { closed = true; } if (closed) setTimeout(function () { done(landed ? 'returned' : 'window closed without a result'); }, 500); }, 500);
       setTimeout(function () { done('timed out'); }, CONFIG.popupWaitMs);
       makePkce().then(function (pkce) {
-        pop.location.href = buildAuthorizeUrl({ challenge: pkce.challenge, state: 'diag.' + runId + '.popup', responseMode: 'query' });
+        pop.location.href = buildAuthorizeUrl({ challenge: pkce.challenge, state: stateFor(runId, 'popup', true), responseMode: 'query' });
       });
     });
   }
 
   // ===== classification =================================================================
-  function classify(r) {
+  function classify(r, mode) {
+    mode = mode || RETURN_MODE;
     if (r.landed) {
       if (r.landed.error) return { code: 'ENTRA_ERROR', text: 'Microsoft answered with an error: ' + r.landed.error + (r.landed.errorDescription ? ' (' + r.landed.errorDescription + ')' : '') };
       var ch = (r.viaPostMessage ? 'postMessage yes' : 'postMessage NO') + ', ' + (r.bcSupported ? (r.viaBroadcast ? 'BroadcastChannel yes' : 'BroadcastChannel NO') : 'BroadcastChannel unsupported');
+      if (mode !== 'self') return { code: 'SUCCESS', text: 'The app\'s own return page received a code and reported back by postMessage' };
       var full = r.viaPostMessage && (r.viaBroadcast || !r.bcSupported);
       return { code: full ? 'SUCCESS' : 'SUCCESS_PARTIAL', text: 'A code reached our return page (' + ch + ')' };
     }
-    if (!r.loads || r.loads.length === 0) return { code: 'NEVER_LOADED', text: 'The frame never loaded any page (blocked before anything loaded).' };
-    if (r.loads.length === 1) return { code: 'STALLED_AT_MICROSOFT', text: 'One page loaded (Microsoft sign-in) and the frame never moved on to our return page.' };
-    return { code: 'LOST_AFTER_REDIRECT', text: r.loads.length + ' pages loaded but our return page never reported in (blocked, or a different page loaded).' };
+    var n = r.loads ? r.loads.length : 0;
+    if (n === 0) return { code: 'NEVER_LOADED', text: 'The frame never loaded any page (blocked before anything loaded).' };
+    if (mode === 'app-cross-origin') {
+      if (n === 1) return { code: 'ONE_PAGE_ONLY', text: 'Only one page loaded. Either Microsoft\'s page stalled, or Microsoft redirected straight to the app page (cannot be told apart from here: tick "Show the frame" or check the Network tab).' };
+      return { code: 'SECOND_PAGE_LOADED', text: n + ' pages loaded: Microsoft\'s page and then almost certainly the app\'s return page. This is inferred, not confirmed (a blocked page can also count as a load).' };
+    }
+    var note = mode === 'app-same-origin' ? ' (If the deployed app build is older than the latest sso.ts it does not report back, and then this result proves nothing.)' : '';
+    if (n === 1) return { code: 'STALLED_AT_MICROSOFT', text: 'One page loaded (Microsoft sign-in) and the frame never moved on to the return page.' + note };
+    return { code: 'LOST_AFTER_REDIRECT', text: n + ' pages loaded but the return page never reported in (blocked, or a different page loaded).' + note };
   }
   function classifyPopup(r) {
     if (r.blocked) return { code: 'POPUP_BLOCKED', text: 'The browser blocked the popup.' };
-    if (r.landed) return r.landed.error ? { code: 'ENTRA_ERROR', text: 'Microsoft answered with an error: ' + r.landed.error } : { code: 'SUCCESS', text: 'A code reached our return page.' };
+    if (r.landed) return r.landed.error ? { code: 'ENTRA_ERROR', text: 'Microsoft answered with an error: ' + r.landed.error } : { code: 'SUCCESS', text: 'A code reached the return page.' };
+    if (RETURN_MODE === 'app-cross-origin' && /closed/.test(r.why || '')) return { code: 'POPUP_CLOSED', text: 'The popup closed after ' + r.elapsed + ' ms. If you did not close it yourself, the app\'s return page closed it, which means the sign-in worked.' };
     return { code: 'NO_RESULT', text: 'No result: ' + r.why };
   }
 
@@ -307,6 +339,7 @@ function sha256(message) {
     var L = [];
     var libEl = document.getElementById('lib'), flagEl = document.getElementById('flags');
     L.push('SSO DIAGNOSTIC REPORT ' + new Date().toISOString());
+    L.push('Return address: ' + CONFIG.redirectUri + ' | mode: ' + RETURN_MODE);
     L.push('Edge sign-in library (edge://signin-internals): ' + ((libEl && libEl.value) || '(not filled in)'));
     L.push('Browser started with flags: ' + ((flagEl && flagEl.value) || '(none)'));
     if (state.env) {
@@ -336,7 +369,8 @@ function sha256(message) {
     var keepLib = (document.getElementById('lib') || {}).value || '', keepFlags = (document.getElementById('flags') || {}).value || '';
     var keepShow = showFrame();
     var h = [];
-    h.push('<p class="note">Page: <b>' + esc(location.origin + location.pathname) + '</b> &mdash; framed: <b>' + isFramed() + '</b>. Nothing on this page reads or sends any token or code.</p>');
+    var modeText = { 'self': 'This file is its own return page (its address must be registered in Azure).', 'app-same-origin': 'Microsoft returns to the real app page on the same site, which reports back: results are confirmed.', 'app-cross-origin': 'Microsoft returns to the real app page on ANOTHER site: the last step is inferred from page-load counts, not confirmed.' }[RETURN_MODE];
+    h.push('<p class="note">Page: <b>' + esc(location.origin + location.pathname) + '</b> &mdash; framed: <b>' + isFramed() + '</b>. Nothing on this page reads or sends any token or code.<br>Return address: <b>' + esc(CONFIG.redirectUri) + '</b> &mdash; ' + esc(modeText) + '</p>');
     h.push('<p>Edge sign-in library from <code>edge://signin-internals</code>: <input id="lib" type="text" placeholder="OneAuth or WAM"> &nbsp; Started with flags: <input id="flags" type="text" placeholder="e.g. --disable-features=msOneAuthWAM"></p>');
     h.push('<p><label><input id="showframe" type="checkbox"> Show the sign-in frame while testing (to see what Microsoft displays)</label></p>');
     h.push('<p><button id="runFrames"' + (state.running ? ' disabled' : '') + '>1. Run frame tests (about 1 minute, no clicks)</button><button id="runPopup"' + (state.running ? ' disabled' : '') + '>2. Run popup test (opens a window)</button><button id="copy">3. Copy report</button></p>');
@@ -372,7 +406,7 @@ function sha256(message) {
   }
 
   // test hooks (nothing here is secret)
-  window.__ssoDiag = { CONFIG: CONFIG, buildAuthorizeUrl: buildAuthorizeUrl, classify: classify, classifyPopup: classifyPopup, makePkce: makePkce, runFrameTest: runFrameTest, runTransportTest: runTransportTest, buildReport: buildReport, state: state, VARIANTS: VARIANTS };
+  window.__ssoDiag = { RETURN_MODE: RETURN_MODE, stateFor: stateFor, CONFIG: CONFIG, buildAuthorizeUrl: buildAuthorizeUrl, classify: classify, classifyPopup: classifyPopup, makePkce: makePkce, runFrameTest: runFrameTest, runTransportTest: runTransportTest, buildReport: buildReport, state: state, VARIANTS: VARIANTS };
 
   var st = getParam('state') || '';
   if (st.indexOf('diag.') === 0 && (getParam('code') || getParam('error'))) runReturn();
