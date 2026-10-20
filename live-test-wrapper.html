@@ -95,9 +95,14 @@ function sha256(message) {
   //     it reports back to us (needs the newest sso.ts build deployed).
   //   - If this file is served from anywhere else, the return page is on another site: we can only see
   //     how many pages the frame loaded, so the last step is inferred, not confirmed.
-  // Add ?redirect=self only if this file's own address has been registered as a SPA redirect address.
+  // Addresses of this file that are ALREADY registered as SPA redirect addresses on the production app
+  // (from the earlier tests with the client): there, the file is its own return page, which gives
+  // fully confirmed results. ?redirect=self forces that mode, ?redirect=app forces the app's page.
+  var REGISTERED_SELF = { 'https://zaheer9182.github.io/sso-test/live-test-wrapper.html': 1 };
   var APP_HOSTS = { 'assistant.moj.gov.qa': 1, 'stg.assistant.moj.gov.qa': 1, 'dev.assistant.moj.gov.qa': 1 };
-  var selfReturn = params.get('redirect') === 'self';
+  var redirectParam = params.get('redirect');
+  var selfReturn = redirectParam === 'self' || (redirectParam !== 'app' && !!REGISTERED_SELF[location.origin + location.pathname]);
+  var selfRegistered = !!REGISTERED_SELF[location.origin + location.pathname];
   var appHost = APP_HOSTS[location.hostname] ? location.hostname : 'assistant.moj.gov.qa';
   CONFIG.redirectUri = selfReturn ? location.origin + location.pathname : 'https://' + appHost + '/sharepoint';
   var RETURN_MODE = selfReturn ? 'self' : (new URL(CONFIG.redirectUri).origin === location.origin ? 'app-same-origin' : 'app-cross-origin');
@@ -290,7 +295,8 @@ function sha256(message) {
       return { code: 'SECOND_PAGE_LOADED', text: n + ' pages loaded: Microsoft\'s page and then almost certainly the app\'s return page. This is inferred, not confirmed (a blocked page can also count as a load).' };
     }
     var note = mode === 'app-same-origin' ? ' (If the deployed app build is older than the latest sso.ts it does not report back, and then this result proves nothing.)' : '';
-    if (n === 1) return { code: 'STALLED_AT_MICROSOFT', text: 'One page loaded (Microsoft sign-in) and the frame never moved on to the return page.' + note };
+    var reg = ' Rule out a wrong address first: tick "Show the frame"; if it shows AADSTS50011 (redirect address mismatch), the return address is not registered on this app.';
+    if (n === 1) return { code: 'STALLED_AT_MICROSOFT', text: 'One page loaded (Microsoft sign-in) and the frame never moved on to the return page.' + reg + note };
     return { code: 'LOST_AFTER_REDIRECT', text: n + ' pages loaded but the return page never reported in (blocked, or a different page loaded).' + note };
   }
   function classifyPopup(r) {
@@ -369,7 +375,7 @@ function sha256(message) {
     var keepLib = (document.getElementById('lib') || {}).value || '', keepFlags = (document.getElementById('flags') || {}).value || '';
     var keepShow = showFrame();
     var h = [];
-    var modeText = { 'self': 'This file is its own return page (its address must be registered in Azure).', 'app-same-origin': 'Microsoft returns to the real app page on the same site, which reports back: results are confirmed.', 'app-cross-origin': 'Microsoft returns to the real app page on ANOTHER site: the last step is inferred from page-load counts, not confirmed.' }[RETURN_MODE];
+    var modeText = { 'self': selfRegistered ? 'This file is its own return page and its address is already registered for the app: results are confirmed.' : 'This file is its own return page (its address must be registered in Azure for this to work).', 'app-same-origin': 'Microsoft returns to the real app page on the same site, which reports back: results are confirmed.', 'app-cross-origin': 'Microsoft returns to the real app page on ANOTHER site: the last step is inferred from page-load counts, not confirmed.' }[RETURN_MODE];
     h.push('<p class="note">Page: <b>' + esc(location.origin + location.pathname) + '</b> &mdash; framed: <b>' + isFramed() + '</b>. Nothing on this page reads or sends any token or code.<br>Return address: <b>' + esc(CONFIG.redirectUri) + '</b> &mdash; ' + esc(modeText) + '</p>');
     h.push('<p>Edge sign-in library from <code>edge://signin-internals</code>: <input id="lib" type="text" placeholder="OneAuth or WAM"> &nbsp; Started with flags: <input id="flags" type="text" placeholder="e.g. --disable-features=msOneAuthWAM"></p>');
     h.push('<p><label><input id="showframe" type="checkbox"> Show the sign-in frame while testing (to see what Microsoft displays)</label></p>');
